@@ -27,25 +27,85 @@ io.on('connection', (socket) => {
 
   socket.on('joinRoom', (data) => {
     console.log(rooms, rooms.has(data.roomNumber));
+
+    if (rooms.has(data.roomNumber)) {
+      if(!rooms.get(data.roomNumber).players.find(player => player.name === data.username)) {
+        rooms.get(data.roomNumber).players.push(new Player(data.username))
+      } else {
+        console.log('player already exists');
+        socket.emit('playerExists', {message: 'player already exists'})
+        return;
+      }
+    } else {
+      rooms.set(data.roomNumber, {players: [new Player(data.username)], chat: [], game: null})
+    }
+    
     socket.join(data.roomNumber)
     username = data.username
 
-    if (rooms.has(data.roomNumber)) {
-      rooms.get(data.roomNumber).push(new Player(data.username))
-    } else {
-      rooms.set(data.roomNumber, [new Player(data.username)])
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')
+  });
+
+  socket.on("connectToRoom", (data) => {
+    if(data.username != username) {
+      console.log('username does not match');
+      socket.emit('usernameDoesNotMatch', {message: 'username does not match'})
+      return;
     }
 
-    sendData(data.roomNumber, rooms.get(data.roomNumber), socket, 'getPlayers')
+    if (!rooms.has(data.roomNumber)) {
+      console.log('no room');
+      socket.emit('noRoom', {message: 'no room'})
+      return;
+    }
+
+    socket.join(data.roomNumber)
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')
+  });
+
+  socket.on("chat", (data) => {
+    console.log(data, username);
+    if(data.name != username) {
+      console.log('username does not match');
+      socket.emit('usernameDoesNotMatch', {message: 'username does not match'})
+      return;
+    }
+
+    if (!rooms.has(data.roomNumber)) {
+      console.log('no room');
+      socket.emit('noRoom', {message: 'no room'})
+      return;
+    }
+
+    rooms.get(data.roomNumber).chat.push({name: data.name, message: data.message})
+    sendData(data.roomNumber, rooms.get(data.roomNumber).chat, socket, 'getChat')
+  });
+
+
+
+  socket.on("disconnectFromRoom", (data) => {
+    if(data.username != username) {
+      console.log('username does not match');
+      socket.emit('usernameDoesNotMatch', {message: 'username does not match'})
+      return;
+    }
+
+    if (!rooms.has(data.roomNumber)) {
+      console.log('no room');
+      socket.emit('noRoom', {message: 'no room'})
+      return;
+    }
+
+    socket.leave(data.roomNumber)
+    rooms.get(data.roomNumber).players.splice(rooms.get(data.roomNumber).players.findIndex(player => player.username === data.username), 1)
+
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')
   });
 });
 
 function sendData(room, data, socket, event, time = 500) {
-  
-  setTimeout(() => {
-    console.log("sending data");
-    io.to(room).emit(event, data);
-  }, time);
+  console.log(`sending ${event} to ${room} with data ${data}`);
+  io.to(room).emit(event, data);
 }
 
 server.listen(3000, () => {
