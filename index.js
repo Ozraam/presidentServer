@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import { Player } from "./game/Player.js"
+import { PresidentGame } from "./game/PresidentGame.js"
 
 const app = express();
 const server = http.createServer(app);
@@ -43,7 +44,8 @@ io.on('connection', (socket) => {
     socket.join(data.roomNumber)
     username = data.username
 
-    sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')+
+    sendData(data.roomNumber, rooms.get(data.roomNumber).chat, socket, 'getChat')
   });
 
   socket.on("connectToRoom", (data) => {
@@ -60,6 +62,25 @@ io.on('connection', (socket) => {
     }
 
     socket.join(data.roomNumber)
+    rooms.get(data.roomNumber).players.filter(player => player.name === data.username)[0].leaving = false
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')
+  });
+
+  socket.on("leaveRoom", (data) => {
+    if(data.username != username) {
+      console.log('username does not match');
+      socket.emit('usernameDoesNotMatch', {message: 'username does not match'})
+      return;
+    }
+
+    if (!rooms.has(data.roomNumber)) {
+      console.log('no room');
+      socket.emit('noRoom', {message: 'no room'})
+      return;
+    }
+
+    socket.leave(data.roomNumber)
+    rooms.get(data.roomNumber).players.filter(player => player.name === data.username)[0].leaving = true
     sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')
   });
 
@@ -97,10 +118,212 @@ io.on('connection', (socket) => {
     }
 
     socket.leave(data.roomNumber)
-    rooms.get(data.roomNumber).players.splice(rooms.get(data.roomNumber).players.findIndex(player => player.username === data.username), 1)
+    rooms.get(data.roomNumber).players.splice(rooms.get(data.roomNumber).players.findIndex(player => player.name === data.username), 1)
+    console.log(data.username);
+    console.log(rooms.get(data.roomNumber).players);
 
     sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')
+
+    if(rooms.get(data.roomNumber).players.length === 0) {
+      rooms.delete(data.roomNumber)
+    }
   });
+
+
+
+  // ------------------ GAME ------------------
+
+  socket.on("startGame", (data) => {
+    if(data.username != username) {
+      console.log('username does not match');
+      socket.emit('usernameDoesNotMatch', {message: 'username does not match'});
+      return;
+    }
+
+    if (!rooms.has(data.roomNumber)) {
+      console.log('no room');
+      socket.emit('noRoom', {message: 'no room'});
+      return;
+    }
+
+    /** @type {Player[]} */
+    let players = rooms.get(data.roomNumber).players;
+
+    players = players.filter(player => !player.leaving);
+    rooms.set(data.roomNumber, {players: players, chat: rooms.get(data.roomNumber).chat, game: null});
+
+    if(players.length < 4) {
+      console.log('not enough players');
+      socket.emit('gameStateStart', "notStarted");
+      return;
+    }
+
+    socket.emit('gameStateStart', "started");
+
+    let game = new PresidentGame(rooms.get(data.roomNumber).players);
+    game.setup();
+
+    rooms.get(data.roomNumber).game = game;
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players , socket, 'getPlayers');
+
+    if(game.canStart()) {
+      sendData(data.roomNumber, game, socket, 'getGame');
+    }
+  });
+
+  socket.on("cardEchange", (data) => {
+    // data = {roomNumber: string, username: string, cards: Card[]}
+    if(data.username != username) {
+      console.log('username does not match');
+      socket.emit('usernameDoesNotMatch', {message: 'username does not match'});
+      return;
+    }
+
+    if (!rooms.has(data.roomNumber)) {
+      console.log('no room');
+      socket.emit('noRoom', {message: 'no room'});
+      return;
+    }
+
+    if(!rooms.get(data.roomNumber).game) {
+      console.log('no game');
+      socket.emit('noGame', {message: 'no game'});
+      return;
+    }
+
+    /** @type {PresidentGame} */
+    let game = rooms.get(data.roomNumber).game;
+
+    if(game.started || game.canStart()) {
+      console.log('game already started');
+      socket.emit('gameAlreadyStarted', {message: 'game already started'});
+      return;
+    }
+
+    let player = game.players.filter(player => player.name === data.username)[0];
+    // if player is rank 3 use viceLooserGive, if 4 use looserGive, if 1 use vicePresidentGive and card[], if 0 presidentGive and card[] given in data
+    if(player.rank === 3) {
+      game.viceLooserGive(data);
+    } else if(player.rank === 4) {
+      game.looserGive(data.cards);
+    } else if(player.rank === 1) {
+      game.vicePresidentGive(data);
+    } else if(player.rank === 0) {
+      game.presidentGive(data.cards);
+    } else {
+      console.log('not a valid rank');
+      socket.emit('notValidRank', {message: 'not a valid rank'});
+      return;
+    }
+
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players , socket, 'getPlayers');
+
+    if(game.canStart()) {
+      sendData(data.roomNumber, game, socket, 'getGame');
+    }
+  });
+
+  socket.on("cardPlay", (data) => {
+    // data = {roomNumber: string, username: string, cards: Card[]}
+    if(data.username != username) {
+      console.log('username does not match');
+      socket.emit('usernameDoesNotMatch', {message: 'username does not match'});
+      return;
+    }
+
+    if (!rooms.has(data.roomNumber)) {
+      console.log('no room');
+      socket.emit('noRoom', {message: 'no room'});
+      return;
+    }
+
+    if(!rooms.get(data.roomNumber).game) {
+      console.log('no game');
+      socket.emit('noGame', {message: 'no game'});
+      return;
+    }
+
+    /** @type {PresidentGame} */
+    let game = rooms.get(data.roomNumber).game;
+
+    let player = game.players.filter(player => player.name === data.username)[0];
+
+    if(!game.started) {
+      game.start(data.cards, player);
+    } else {
+      game.playCards(data.cards);
+    }
+
+    sendData(data.roomNumber, game, socket, 'getGame');
+  });
+
+
+  socket.on("cardPass", (data) => {
+    // data = {roomNumber: string, username: string}
+    if(data.username != username) {
+      console.log('username does not match');
+      socket.emit('usernameDoesNotMatch', {message: 'username does not match'});
+      return;
+    }
+
+    if (!rooms.has(data.roomNumber)) {
+      console.log('no room');
+      socket.emit('noRoom', {message: 'no room'});
+      return;
+    }
+
+    if(!rooms.get(data.roomNumber).game) {
+      console.log('no game');
+      socket.emit('noGame', {message: 'no game'});
+      return;
+    }
+
+    /** @type {PresidentGame} */
+    let game = rooms.get(data.roomNumber).game;
+
+    game.pass();
+
+    sendData(data.roomNumber, game, socket, 'getGame');
+  });
+
+  socket.on("stealRound", (data) => {
+    // data = {roomNumber: string, username: string}
+    if(data.username != username) {
+      console.log('username does not match');
+      socket.emit('usernameDoesNotMatch', {message: 'username does not match'});
+      return;
+    }
+
+    if (!rooms.has(data.roomNumber)) {
+      console.log('no room');
+      socket.emit('noRoom', {message: 'no room'});
+      return;
+    }
+
+    if(!rooms.get(data.roomNumber).game) {
+      console.log('no game');
+      socket.emit('noGame', {message: 'no game'});
+      return;
+    }
+
+    /** @type {PresidentGame} */
+    let game = rooms.get(data.roomNumber).game;
+    let player = game.players.filter(player => player.name === data.username)[0];
+    game.stealCards(player);
+
+    sendData(data.roomNumber, game, socket, 'getGame');
+  });
+
+
+
+
+
+
+
+
+
+
+
 });
 
 function sendData(room, data, socket, event, time = 500) {

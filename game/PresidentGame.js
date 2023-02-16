@@ -70,7 +70,7 @@ export class PresidentGame {
     }
 
     canStart() {
-        return this.viceLooserGiven && this.looserGiven && this.vicePresGiven && this.presGiven && !this.finished;
+        return this.viceLooserGiven && this.looserGiven && this.vicePresGiven && this.presGiven && !this.finished && !this.started;
     }
 
     looserGive() {

@@ -8,6 +8,7 @@ export class Player {
         this.name = name;
         this.deck = new Deck();
         this.rank = PlayerRank.NEUTRAL;
+        this.leaving = false;
     }
 
     giveCardTo(player, card) {
