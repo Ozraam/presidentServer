@@ -44,8 +44,8 @@ io.on('connection', (socket) => {
     socket.join(data.roomNumber)
     username = data.username
 
-    sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')+
-    sendData(data.roomNumber, rooms.get(data.roomNumber).chat, socket, 'getChat')
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players, 'getPlayers')+
+    sendData(data.roomNumber, rooms.get(data.roomNumber).chat, 'getChat')
   });
 
   socket.on("connectToRoom", (data) => {
@@ -63,7 +63,7 @@ io.on('connection', (socket) => {
 
     socket.join(data.roomNumber)
     rooms.get(data.roomNumber).players.filter(player => player.name === data.username)[0].leaving = false
-    sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players, 'getPlayers')
   });
 
   socket.on("leaveRoom", (data) => {
@@ -79,9 +79,15 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if(rooms.get(data.roomNumber).players.filter(player => player.name === data.username).length === 0) {
+      console.log('player does not exist');
+      socket.emit('playerDoesNotExist', {message: 'player does not exist'})
+      return;
+    }
+
     socket.leave(data.roomNumber)
     rooms.get(data.roomNumber).players.filter(player => player.name === data.username)[0].leaving = true
-    sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players, 'getPlayers')
   });
 
   socket.on("chat", (data) => {
@@ -99,7 +105,7 @@ io.on('connection', (socket) => {
     }
 
     rooms.get(data.roomNumber).chat.push({name: data.name, message: data.message})
-    sendData(data.roomNumber, rooms.get(data.roomNumber).chat, socket, 'getChat')
+    sendData(data.roomNumber, rooms.get(data.roomNumber).chat, 'getChat')
   });
 
 
@@ -122,7 +128,7 @@ io.on('connection', (socket) => {
     console.log(data.username);
     console.log(rooms.get(data.roomNumber).players);
 
-    sendData(data.roomNumber, rooms.get(data.roomNumber).players, socket, 'getPlayers')
+    sendData(data.roomNumber, rooms.get(data.roomNumber).players, 'getPlayers')
 
     if(rooms.get(data.roomNumber).players.length === 0) {
       rooms.delete(data.roomNumber)
@@ -134,11 +140,6 @@ io.on('connection', (socket) => {
   // ------------------ GAME ------------------
 
   socket.on("startGame", (data) => {
-    if(data.username != username) {
-      console.log('username does not match');
-      socket.emit('usernameDoesNotMatch', {message: 'username does not match'});
-      return;
-    }
 
     if (!rooms.has(data.roomNumber)) {
       console.log('no room');
@@ -158,16 +159,20 @@ io.on('connection', (socket) => {
       return;
     }
 
-    socket.emit('gameStateStart', "started");
+    sendData(data.roomNumber, "started", 'gameStateStart');
 
-    let game = new PresidentGame(rooms.get(data.roomNumber).players);
+    let game = new PresidentGame();
+    for(let player of players) {
+      game.addPlayer(player);
+    }
+      
     game.setup();
 
     rooms.get(data.roomNumber).game = game;
-    sendData(data.roomNumber, rooms.get(data.roomNumber).players , socket, 'getPlayers');
+    sendData(data.roomNumber, game.players, 'getPlayers');
 
     if(game.canStart()) {
-      sendData(data.roomNumber, game, socket, 'getGame');
+      sendData(data.roomNumber, game, 'getGame');
     }
   });
 
@@ -219,7 +224,7 @@ io.on('connection', (socket) => {
     sendData(data.roomNumber, rooms.get(data.roomNumber).players , socket, 'getPlayers');
 
     if(game.canStart()) {
-      sendData(data.roomNumber, game, socket, 'getGame');
+      sendData(data.roomNumber, game, 'getGame');
     }
   });
 
@@ -254,7 +259,7 @@ io.on('connection', (socket) => {
       game.playCards(data.cards);
     }
 
-    sendData(data.roomNumber, game, socket, 'getGame');
+    sendData(data.roomNumber, game, 'getGame');
   });
 
 
@@ -283,7 +288,7 @@ io.on('connection', (socket) => {
 
     game.pass();
 
-    sendData(data.roomNumber, game, socket, 'getGame');
+    sendData(data.roomNumber, game, 'getGame');
   });
 
   socket.on("stealRound", (data) => {
@@ -311,7 +316,7 @@ io.on('connection', (socket) => {
     let player = game.players.filter(player => player.name === data.username)[0];
     game.stealCards(player);
 
-    sendData(data.roomNumber, game, socket, 'getGame');
+    sendData(data.roomNumber, game, 'getGame');
   });
 
 
@@ -326,7 +331,7 @@ io.on('connection', (socket) => {
 
 });
 
-function sendData(room, data, socket, event, time = 500) {
+function sendData(room, data, event) {
   console.log(`sending ${event} to ${room} with data ${data}`);
   io.to(room).emit(event, data);
 }
